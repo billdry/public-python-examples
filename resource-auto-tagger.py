@@ -107,9 +107,11 @@ def lambda_handler(event, context):
                 except botocore.exceptions.ClientError as error:
                     print("Boto3 API returned error: ", error)
                     print("No Tags Applied To: ", response['Volumes'])
+                    return False
             except botocore.exceptions.ClientError as error:
                 print("Boto3 API returned error: ", error)
                 print("No Tags Applied To: ", resource_id)
+                return False
             return True
         else:
             return False
