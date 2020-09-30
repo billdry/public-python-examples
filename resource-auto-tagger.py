@@ -10,6 +10,7 @@ import boto3
 import json
 # Import RegEx module
 import re
+# Modules for decoding & decompressing CloudWatch Logs events
 # Import gzip
 #import gzip
 # Import base64
@@ -52,6 +53,7 @@ def lambda_handler(event, context):
     #Get resource tags stored in AWS SSM Parameter Store 
     #Returns a list of key:string,value:string resource tag dictionaries
     def get_ssm_parameter_tags(role_name, user_name):
+        tag_list = list()
         try:
             path_string = "/auto-tag/" + role_name + "/" + user_name + "/tag"
             ssm_client = boto3.client('ssm')
@@ -60,7 +62,6 @@ def lambda_handler(event, context):
             Recursive=True,
             WithDecryption=True
             )
-            tag_list = list()
             for parameter in get_parameter_response['Parameters']:
                 tag_dictionary = dict()
                 path_components = parameter['Name'].split("/")
@@ -124,8 +125,6 @@ def lambda_handler(event, context):
     role_arn = data_dict['userIdentity']['sessionContext']['sessionIssuer']['arn']
     role_components = role_arn.split("/")
     role_name = role_components[-1]
-    if 'instancesSet' in data_dict['responseElements']:
-        resource_id = data_dict['responseElements']['instancesSet']['items'][0]['instanceId']
     resource_date = data_dict['eventTime']
     
     resource_role_tags = list()
@@ -152,16 +151,25 @@ def lambda_handler(event, context):
     date_created['Value'] = resource_date
     resource_tags.append(date_created)
     
-    if set_resource_tags(resource_id, resource_tags):    
-        return {
-            'statusCode': 200,
-            'Resource ID': resource_id,
-            'body': json.dumps(resource_tags)
-        }
+    if 'instancesSet' in data_dict['responseElements']:
+        for item in data_dict['responseElements']['instancesSet']['items']:
+            resource_id = item['instanceId']
+            if set_resource_tags(resource_id, resource_tags):    
+                return {
+                    'statusCode': 200,
+                    'Resource ID': resource_id,
+                    'body': json.dumps(resource_tags)
+                }
+            else:
+                return {
+                    'statusCode': 500,
+                    'No tags applied to Resource ID': resource_id,
+                    'Lambda function name': context.function_name,
+                    'Lambda function version': context.function_version
+                }
     else:
         return {
-            'statusCode': 500,
-            'No tags applied to Resource ID': resource_id,
-            'Lambda function name': context.function_name,
-            'Lambda function version': context.function_version
+            'statusCode': 200,
+            'No resources to tag': event['id']
         }
+
