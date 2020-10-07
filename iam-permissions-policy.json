@@ -1,0 +1,24 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "resourceAutoTaggerPermissions",
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogStream",
+                "ec2:DescribeInstances",
+                "cloudwatch:PutMetricData",
+                "iam:ListRoleTags",
+                "logs:DescribeLogGroups",
+                "ec2:CreateTags",
+                "logs:DescribeLogStreams",
+                "ec2:DescribeVolumes",
+                "logs:GetLogEvents",
+                "ssm:GetParametersByPath",
+                "logs:CreateLogGroup",
+                "logs:PutLogEvents"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
