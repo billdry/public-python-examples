@@ -30,7 +30,6 @@ def get_iam_role_tags(role_name):
     Raises:
         AWS Python API "Boto3" returned errors
     """
-
     client = boto3.client("iam")
     try:
         response = client.list_role_tags(RoleName=role_name)
@@ -73,10 +72,11 @@ def get_ssm_parameter_tags(**kwargs):
     """Get resource tags stored in AWS SSM Parameter Store.
 
     Args:
-        A key word argument (kwarg) dictionary containing any of:
+        A key word argument (kwarg) dictionary containing IAM user name or
+        both IAM role name & user ID assuming the IAM role:
             iam_user_name: IAM user creating the EC2 instance
             role_name: IAM role name of entity creating the EC2 instance
-            user_name: Name of user assuming the IAM role
+            user_id: ID of user assuming the IAM role
 
     Returns:
         Returns a list of key:string,value:string resource tag dictionaries
@@ -89,11 +89,11 @@ def get_ssm_parameter_tags(**kwargs):
 
     iam_user_name = kwargs.get("iam_user_name", False)
     role_name = kwargs.get("role_name", False)
-    user_name = kwargs.get("user_name", False)
+    user_id = kwargs.get("user_id", False)
     if iam_user_name:
         path_string = "/auto-tag/" + iam_user_name + "/tag"
-    elif role_name and user_name:
-        path_string = "/auto-tag/" + role_name + "/" + user_name + "/tag"
+    elif role_name and user_id:
+        path_string = "/auto-tag/" + role_name + "/" + user_id + "/tag"
     else:
         path_string = False
     if path_string:
@@ -114,12 +114,12 @@ def get_ssm_parameter_tags(**kwargs):
 
 
 # Apply resource tags to EC2 instances & attached EBS volumes
-def set_ec2_resource_tags(resource_id, resource_tags):
+def set_ec2_instance_attached_vols_tags(ec2_instance_id, resource_tags):
     """Applies a list of passed resource tags to the Amazon EC2 instance.
        Also applies the same resource tags to EBS volumes attached to instance.
 
     Args:
-        resource_id: EC2 instance identifier
+        ec2_instance_id: EC2 instance identifier
         resource_tags: a list of key:string,value:string resource tag dictionaries
 
     Returns:
@@ -130,23 +130,23 @@ def set_ec2_resource_tags(resource_id, resource_tags):
     """
     client = boto3.client("ec2")
     try:
-        response = client.create_tags(Resources=[resource_id], Tags=resource_tags)
+        response = client.create_tags(Resources=[ec2_instance_id], Tags=resource_tags)
         response = client.describe_volumes(
-            Filters=[{"Name": "attachment.instance-id", "Values": [resource_id]}]
+            Filters=[{"Name": "attachment.instance-id", "Values": [ec2_instance_id]}]
         )
         try:
             for volume in response.get("Volumes"):
                 ec2 = boto3.resource("ec2")
                 ec2_vol = ec2.Volume(volume["VolumeId"])
                 vol_tags = ec2_vol.create_tags(Tags=resource_tags)
+            return True
         except botocore.exceptions.ClientError as error:
             print("Boto3 API returned error: ", error)
             print("No Tags Applied To: ", response["Volumes"])
             return False
-        return True
     except botocore.exceptions.ClientError as error:
         print("Boto3 API returned error: ", error)
-        print("No Tags Applied To: ", resource_id)
+        print("No Tags Applied To: ", ec2_instance_id)
         return False
 
 
@@ -162,7 +162,7 @@ def cloudtrail_event_parser(event):
         instances_set: list of EC2 instances & parameter dictionaries
         resource_date: date the EC2 instance was created
         role_name: IAM role name used by entity creating the EC2 instance
-        user_name: Name of user assuming the IAM role & taking this action
+        user_id: ID of user assuming the IAM role & taking this action
 
     Raises:
         none
@@ -176,7 +176,7 @@ def cloudtrail_event_parser(event):
         )
 
     # Get the assumed IAM role name used to create the new EC2 instance(s)
-    if (
+    elif (
         event.get("detail").get("userIdentity").get("type") == "AssumedRole"
         or event.get("detail").get("userIdentity").get("type") == "FederatedUser"
     ):
@@ -262,17 +262,17 @@ def lambda_handler(event, context):
     # Tag any newly launched EC2 instances listed in the CloudTrail event
     if event_fields.get("instances_set"):
         for item in event_fields.get("instances_set").get("items"):
-            resource_id = item.get("instanceId")
-            if set_ec2_resource_tags(resource_id, resource_tags):
+            ec2_instance_id = item.get("instanceId")
+            if set_ec2_instance_attached_vols_tags(ec2_instance_id, resource_tags):
                 print(
                     "'statusCode': 200,\n"
-                    f"'Resource ID': {resource_id}\n"
+                    f"'Resource ID': {ec2_instance_id}\n"
                     f"'body': {json.dumps(resource_tags)}"
                 )
             else:
                 print(
                     "'statusCode': 500,\n"
-                    f"'No tags applied to Resource ID': {resource_id},\n"
+                    f"'No tags applied to Resource ID': {ec2_instance_id},\n"
                     f"'Lambda function name': {context.function_name},\n"
                     f"'Lambda function version': {context.function_version}"
                 )
