@@ -98,12 +98,12 @@ def get_ssm_parameter_tags(**kwargs):
                 Path=path_string, Recursive=True, WithDecryption=True
             )
             if get_parameter_response.get("Parameters"):
-                tag_list = list()
+                tag_list = []
                 for parameter in get_parameter_response.get("Parameters"):
                     path_components = parameter["Name"].split("/")
                     tag_key = path_components[-1]
                     tag_list.append({"Key": tag_key, "Value": parameter.get("Value")})
-                return True
+                return tag_list
             else:
                 return False
         except botocore.exceptions.ClientError as error:
@@ -221,7 +221,7 @@ def cloudtrail_event_parser(event):
 
 
 def lambda_handler(event, context):
-    resource_tags = list()
+    resource_tags = []
 
     # Parse the passed CloudTrail event and extract pertinent EC2 launch fields
     event_fields = cloudtrail_event_parser(event)
