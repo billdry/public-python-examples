@@ -3,9 +3,12 @@
    Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
    SPDX-License-Identifier: MIT-0
 
-   This AWS Lambda extracts tags from IAM role, IAM user & SSM parameters.
-   These extracted tags are applied to Amazon EC2 instances & attached
-   EBS volumes.
+   Amazon EventBridge triggers this AWS Lambda function when AWS CloudTrail detects
+   a RunInstances API event.  This Lambda function extracts relevant information
+   from that API event to retrieve resource tags from IAM role,
+   IAM user & SSM parameters then apply the retrieved tags to the newly created
+   Amazon EC2 instances listed in the CloudTrail event. These resource tags are applied
+   to Amazon EC2 instances & their attached EBS volumes.
 """
 
 # Import AWS modules for python
@@ -13,7 +16,7 @@ import botocore
 import boto3
 
 # Import JSON to post resource tagging results
-# to CloudWatch logs as a JSON object
+# to Amazon CloudWatch logs as a JSON object
 import json
 
 
@@ -54,18 +57,12 @@ def get_iam_user_tags(iam_user_name):
         AWS Python API "Boto3" returned client errors
     """
     client = boto3.client("iam")
-    # no_tags = list()
     try:
         response = client.list_user_tags(UserName=iam_user_name)
         return response.get("Tags", False)
     except botocore.exceptions.ClientError as error:
         print("Boto3 API returned error: ", error)
         return False
-    # if response.get("Tags"):
-    #    return response["Tags"]
-    # else:
-    #    return no_tags
-    # return response.get("Tags", [])
 
 
 def get_ssm_parameter_tags(**kwargs):
@@ -80,13 +77,11 @@ def get_ssm_parameter_tags(**kwargs):
 
     Returns:
         Returns a list of key:string,value:string resource tag dictionaries
-        Returns an empty list if no resource tags found
+        Returns Boolean False if no resource tags found
 
     Raises:
         AWS Python API "Boto3" returned client errors
     """
-    tag_list = list()
-
     iam_user_name = kwargs.get("iam_user_name", False)
     role_name = kwargs.get("role_name", False)
     user_id = kwargs.get("user_id", False)
@@ -102,15 +97,20 @@ def get_ssm_parameter_tags(**kwargs):
             get_parameter_response = ssm_client.get_parameters_by_path(
                 Path=path_string, Recursive=True, WithDecryption=True
             )
-            for parameter in get_parameter_response.get("Parameters"):
-                path_components = parameter["Name"].split("/")
-                tag_key = path_components[-1]
-                tag_list.append({"Key": tag_key, "Value": parameter.get("Value")})
-
+            if get_parameter_response.get("Parameters"):
+                tag_list = list()
+                for parameter in get_parameter_response.get("Parameters"):
+                    path_components = parameter["Name"].split("/")
+                    tag_key = path_components[-1]
+                    tag_list.append({"Key": tag_key, "Value": parameter.get("Value")})
+                return True
+            else:
+                return False
         except botocore.exceptions.ClientError as error:
             print("Boto3 API returned error: ", error)
-            tag_list.clear()
-    return tag_list
+            return False
+    else:
+        return False
 
 
 # Apply resource tags to EC2 instances & attached EBS volumes
@@ -181,7 +181,7 @@ def cloudtrail_event_parser(event):
         or event.get("detail").get("userIdentity").get("type") == "FederatedUser"
     ):
         # Check if optional Cloudtrail sessionIssuer field indicates assumed role credential type
-        # iIf so, extract the IAM role named used during EC2 instance creation
+        # If so, extract the IAM role named used during EC2 instance creation
         if (
             event.get("detail")
             .get("userIdentity")
@@ -209,10 +209,12 @@ def cloudtrail_event_parser(event):
         else:
             returned_event_fields["role_name"] = False
 
+    # Extract & return the list of new EC2 instance(s) and their parameters
     returned_event_fields["instances_set"] = (
         event.get("detail").get("responseElements").get("instancesSet", False)
     )
 
+    # Extract the date & time of the EC2 instance creation
     returned_event_fields["resource_date"] = event.get("detail").get("eventTime", False)
 
     return returned_event_fields
@@ -221,7 +223,7 @@ def cloudtrail_event_parser(event):
 def lambda_handler(event, context):
     resource_tags = list()
 
-    # Parse the passed CloudTrail event for pertinent EC2 launch fields
+    # Parse the passed CloudTrail event and extract pertinent EC2 launch fields
     event_fields = cloudtrail_event_parser(event)
 
     # Check for IAM User initiated event & get any associated resource tags
@@ -232,9 +234,11 @@ def lambda_handler(event, context):
         iam_user_resource_tags = get_iam_user_tags(event_fields["iam_user_name"])
         if iam_user_resource_tags:
             resource_tags += iam_user_resource_tags
-        resource_tags += get_ssm_parameter_tags(
+        ssm_parameter_resource_tags = get_ssm_parameter_tags(
             iam_user_name=event_fields["iam_user_name"]
         )
+        if ssm_parameter_resource_tags:
+            resource_tags += ssm_parameter_resource_tags
 
     # Check for event date & time in returned CloudTrail event field
     # and append as resource tag
@@ -255,11 +259,13 @@ def lambda_handler(event, context):
             resource_tags.append(
                 {"Key": "Created by", "Value": event_fields["user_id"]}
             )
-            resource_tags += get_ssm_parameter_tags(
+            ssm_parameter_resource_tags = get_ssm_parameter_tags(
                 role_name=event_fields["role_name"], user_id=event_fields["user_id"]
             )
+            if ssm_parameter_resource_tags:
+                resource_tags += ssm_parameter_resource_tags
 
-    # Tag any newly launched EC2 instances listed in the CloudTrail event
+    # Tag EC2 instances listed in the CloudTrail event
     if event_fields.get("instances_set"):
         for item in event_fields.get("instances_set").get("items"):
             ec2_instance_id = item.get("instanceId")
