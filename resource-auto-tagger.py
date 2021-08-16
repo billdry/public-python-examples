@@ -11,13 +11,13 @@
    Amazon EC2 instances & their attached EBS volumes listed in the CloudTrail event.
 """
 
-# Import AWS modules for python
-import botocore
-import boto3
-
 # Import JSON to post resource tagging results
 # to Amazon CloudWatch logs as a JSON object
 import json
+
+# Import AWS modules for python
+import boto3
+import botocore
 
 
 def get_iam_role_tags(role_name):
