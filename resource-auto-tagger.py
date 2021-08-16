@@ -82,13 +82,10 @@ def get_ssm_parameter_tags(**kwargs):
     Raises:
         AWS Python API "Boto3" returned client errors
     """
-    iam_user_name = kwargs.get("iam_user_name", False)
-    role_name = kwargs.get("role_name", False)
-    user_id = kwargs.get("user_id", False)
-    if iam_user_name:
-        path_string = "/auto-tag/" + iam_user_name + "/tag"
-    elif role_name and user_id:
-        path_string = "/auto-tag/" + role_name + "/" + user_id + "/tag"
+    if kwargs.get("iam_user_name"):
+        path_string = "/auto-tag/" + kwargs["iam_user_name"] + "/tag"
+    elif kwargs.get("role_name") and kwargs.get("user_id"):
+        path_string = "/auto-tag/" + kwargs["role_name"] + "/" + kwargs["user_id"] + "/tag"
     else:
         path_string = False
     if path_string:
