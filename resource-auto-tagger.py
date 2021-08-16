@@ -85,7 +85,9 @@ def get_ssm_parameter_tags(**kwargs):
     if kwargs.get("iam_user_name"):
         path_string = "/auto-tag/" + kwargs["iam_user_name"] + "/tag"
     elif kwargs.get("role_name") and kwargs.get("user_id"):
-        path_string = "/auto-tag/" + kwargs["role_name"] + "/" + kwargs["user_id"] + "/tag"
+        path_string = (
+            "/auto-tag/" + kwargs["role_name"] + "/" + kwargs["user_id"] + "/tag"
+        )
     else:
         path_string = False
     if path_string:
@@ -173,10 +175,7 @@ def cloudtrail_event_parser(event):
         )
 
     # Get the assumed IAM role name used to create the new EC2 instance(s)
-    elif (
-        event.get("detail").get("userIdentity").get("type") == "AssumedRole"
-        or event.get("detail").get("userIdentity").get("type") == "FederatedUser"
-    ):
+    if event.get("detail").get("userIdentity").get("type") == "AssumedRole":
         # Check if optional Cloudtrail sessionIssuer field indicates assumed role credential type
         # If so, extract the IAM role named used during EC2 instance creation
         if (
