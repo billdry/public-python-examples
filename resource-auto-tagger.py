@@ -1,14 +1,14 @@
-"""AWS Lambda resource tagger for Amazon EC2 instances.
+"""AWS Lambda resource tagger for new Amazon EC2 instances & attached EBS volumes.
 
    Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
    SPDX-License-Identifier: MIT-0
 
    Amazon EventBridge triggers this AWS Lambda function when AWS CloudTrail detects
-   a RunInstances API event.  This Lambda function extracts relevant information
-   from that API event to retrieve resource tags from IAM role,
-   IAM user & SSM parameters then apply the retrieved tags to the newly created
-   Amazon EC2 instances listed in the CloudTrail event. These resource tags are applied
-   to Amazon EC2 instances & their attached EBS volumes.
+   a RunInstances API event initiated by IAM users and IAM assumed roles.
+   This Lambda function extracts relevant information
+   from that API event to retrieve resource tags assigned to the IAM role,
+   IAM user & SSM parameters.  Next, this Lambda applies the retrieved tags to the newly created
+   Amazon EC2 instances & their attached EBS volumes listed in the CloudTrail event.
 """
 
 # Import AWS modules for python
@@ -89,7 +89,7 @@ def get_ssm_parameter_tags(**kwargs):
             "/auto-tag/" + kwargs["role_name"] + "/" + kwargs["user_id"] + "/tag"
         )
     else:
-        path_string = False
+        path_string = ""
     if path_string:
         ssm_client = boto3.client("ssm")
         try:
@@ -171,7 +171,7 @@ def cloudtrail_event_parser(event):
     # Check if an IAM user created these EC2 instances & get that user
     if event.get("detail").get("userIdentity").get("type") == "IAMUser":
         returned_event_fields["iam_user_name"] = (
-            event.get("detail").get("userIdentity").get("userName", False)
+            event.get("detail").get("userIdentity").get("userName", "")
         )
 
     # Get the assumed IAM role name used to create the new EC2 instance(s)
@@ -201,17 +201,17 @@ def cloudtrail_event_parser(event):
                 user_id_components = user_id_arn.split("/")
                 returned_event_fields["user_id"] = user_id_components[-1]
             else:
-                returned_event_fields["user_id"] = False
+                returned_event_fields["user_id"] = ""
         else:
-            returned_event_fields["role_name"] = False
+            returned_event_fields["role_name"] = ""
 
     # Extract & return the list of new EC2 instance(s) and their parameters
     returned_event_fields["instances_set"] = (
-        event.get("detail").get("responseElements").get("instancesSet", False)
+        event.get("detail").get("responseElements").get("instancesSet", "")
     )
 
     # Extract the date & time of the EC2 instance creation
-    returned_event_fields["resource_date"] = event.get("detail").get("eventTime", False)
+    returned_event_fields["resource_date"] = event.get("detail").get("eventTime", "")
 
     return returned_event_fields
 
